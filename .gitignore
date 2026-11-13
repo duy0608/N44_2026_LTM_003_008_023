@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.db
+*.sqlite3
+.pytest_cache/
+.DS_Store
+# Kết quả benchmark thô (giữ lại bảng/biểu đồ tổng hợp trong docs/)
+tests/results_raw/
