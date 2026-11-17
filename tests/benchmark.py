@@ -2,6 +2,11 @@
 """
 benchmark.py - Khung script benchmark cho do an Firewall (nguoi C - Kiem thu).
 
+DASHBOARD MOI (FastAPI): cac lenh "-api" goi API cua backend de do chinh he thong that:
+  api-rule-time | load-api | accuracy-setup-api | cleanup-api | api-status
+  (dung --api http://IP:CONG, mac dinh http://127.0.0.1:8000; chay duoc ngay tren FIREWALL VM)
+  Luu y: backend phai TAT dry-run, neu khong rule khong vao nftables va so lieu vo nghia.
+
 Chay tren 2 VM:
   FIREWALL VM (can root, co nftables):  rule-time | load | serve | accuracy-setup | cleanup
   CLIENT VM:                            latency | throughput | accuracy | nmap
@@ -14,6 +19,7 @@ Quy trinh do hieu nang (moi cau hinh: none / rules / set  x  N = 10,100,1000):
   [CLIENT] python3 benchmark.py latency    --target 192.168.56.10 --port 5201 --label rules-100
   [CLIENT] python3 benchmark.py throughput --target 192.168.56.10 --label rules-100
   [FW]     sudo python3 benchmark.py cleanup
+  (cach qua Dashboard: thay "load --mode rules" bang "load-api --mode rules --n 100", cleanup bang "cleanup-api")
 """
 import argparse
 import csv
@@ -26,10 +32,14 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 
 TABLE = "bench"          # bang nft rieng, khong dung chung voi bang cua Dashboard
 CHAIN = "input"
-RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results")
+RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "data")
+API = "http://127.0.0.1:8000"
+PREFIX = "bench-"   # ten rule do script tao, de don dep khong dung rule that cua nhom
 DRY = False
 
 
@@ -168,6 +178,110 @@ def cmd_accuracy_setup(a):
     print("Block:", a.block, "| Allow:", a.allow)
 
 
+
+# ---------------------------------------------------------------- DASHBOARD API (backend FastAPI)
+def http(method, path, body=None):
+    """Goi API backend. Loi tra ve dang {"detail": "..."}."""
+    if DRY:
+        print("[dry-run]", method, API + path, json.dumps(body) if body else "")
+        return None
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(API + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read()).get("detail", e.code)
+        except Exception:
+            msg = e.code
+        sys.exit(f"API loi {method} {path}: {msg}")
+    except urllib.error.URLError as e:
+        sys.exit(f"Khong ket noi duoc {API}: {e.reason}")
+
+
+def api_rule(name, src_ip=None, port="9999", action="drop", proto="tcp"):
+    return {"name": name, "src_ip": src_ip, "dst_ip": None, "port": str(port), "proto": proto,
+            "direction": "in", "action": action, "enabled": True}
+
+
+def ensure_live(allow_dry=False):
+    """Kiem tra backend co ap dung that vao nftables khong (dry_run = false)."""
+    st = http("GET", "/api/status")
+    if st is None:
+        return
+    print("Backend:", json.dumps(st, ensure_ascii=False))
+    if st.get("dry_run") and not allow_dry:
+        sys.exit("Backend dang DRY-RUN (chua tac dong nftables) -> so do hieu nang vo nghia.\n"
+                 "Tat dry-run trong cau hinh backend roi chay lai, hoac them --allow-dry-run de do rieng phan API.")
+
+
+def cleanup_api_rules(prefix=PREFIX):
+    """Xoa cac rule do script tao (ten bat dau bang 'bench-'), roi dong bo lai."""
+    rules = http("GET", "/api/rules") or []
+    n = 0
+    for r in rules:
+        if str(r.get("name") or "").startswith(prefix):
+            http("DELETE", f"/api/rules/{r['id']}")
+            n += 1
+    http("POST", "/api/sync")
+    return n
+
+
+def cmd_api_status(_a):
+    ensure_live(allow_dry=True)
+
+
+def cmd_api_rule_time(a):
+    """Do thoi gian them N rule qua Dashboard API: tao rule (SQLite) + dong bo (nftables)."""
+    ensure_live(a.allow_dry_run)
+    rows = []
+    for n in a.ns:
+        for rep in range(a.repeat):
+            cleanup_api_rules()
+            t0 = time.perf_counter()
+            for i in range(n):
+                http("POST", "/api/rules", api_rule(f"{PREFIX}{i}", fake_ip(i)))
+            t_create = time.perf_counter() - t0
+            t0 = time.perf_counter()
+            http("POST", "/api/sync")
+            t_sync = time.perf_counter() - t0
+            rows.append([n, rep, round(t_create, 6), round(t_sync, 6), round(t_create + t_sync, 6)])
+            print(f"N={n:5d} rep={rep}  tao_rule={t_create:.3f}s  sync={t_sync:.4f}s  tong={t_create + t_sync:.3f}s")
+    cleanup_api_rules()
+    save_csv("rule_time_dashboard.csv", ["n", "rep", "create_s", "sync_s", "total_s"], rows)
+
+
+def cmd_load_api(a):
+    """Nap N rule qua Dashboard API de do latency/throughput cua he thong that."""
+    ensure_live(a.allow_dry_run)
+    cleanup_api_rules()
+    if a.mode == "rules":
+        for i in range(a.n):
+            http("POST", "/api/rules", api_rule(f"{PREFIX}{i}", fake_ip(i), a.port))
+        res = http("POST", "/api/sync")
+        print(f"Da nap qua API: n={a.n}", res or "")
+    else:
+        print("Da don rule bench (mode none)")
+
+
+def cmd_accuracy_setup_api(a):
+    """Tao rule chan/cho phep mau qua Dashboard API (de do do chinh xac)."""
+    ensure_live(a.allow_dry_run)
+    cleanup_api_rules()
+    for p in a.block:
+        http("POST", "/api/rules", api_rule(f"{PREFIX}acc-block-{p}", None, p, "drop"))
+    for p in a.allow:
+        http("POST", "/api/rules", api_rule(f"{PREFIX}acc-allow-{p}", None, p, "accept"))
+    http("POST", "/api/sync")
+    print("Block:", a.block, "| Allow:", a.allow)
+
+
+def cmd_cleanup_api(_a):
+    print("Da xoa", cleanup_api_rules(), "rule bench qua API")
+
 # ---------------------------------------------------------------- CLIENT side
 def tcp_connect_ms(host, port, timeout=1.0):
     t0 = time.perf_counter()
@@ -254,9 +368,10 @@ def ints(s):
 
 
 def main():
-    global DRY
+    global DRY, API
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="chi in lenh, khong chay")
+    ap.add_argument("--api", default="http://127.0.0.1:8000", help="dia chi backend FastAPI")
     sp = ap.add_subparsers(dest="cmd", required=True)
 
     s = sp.add_parser("rule-time", help="[FW] baseline thoi gian them rule bang nft")
@@ -309,8 +424,35 @@ def main():
     s.add_argument("--label", required=True)
     s.set_defaults(f=cmd_nmap)
 
+    def add_dry_flag(sub):
+        sub.add_argument("--allow-dry-run", action="store_true", help="van chay khi backend dang dry-run")
+
+    sp.add_parser("api-status", help="[API] xem trang thai backend (co dry-run khong)").set_defaults(f=cmd_api_status)
+
+    s = sp.add_parser("api-rule-time", help="[API] do thoi gian them N rule qua Dashboard")
+    s.add_argument("--ns", type=ints, default=[10, 100, 1000])
+    s.add_argument("--repeat", type=int, default=3)
+    add_dry_flag(s)
+    s.set_defaults(f=cmd_api_rule_time)
+
+    s = sp.add_parser("load-api", help="[API] nap N rule qua Dashboard de do hieu nang")
+    s.add_argument("--mode", choices=["none", "rules"], required=True)
+    s.add_argument("--n", type=int, default=100)
+    s.add_argument("--port", type=int, default=9999)
+    add_dry_flag(s)
+    s.set_defaults(f=cmd_load_api)
+
+    s = sp.add_parser("accuracy-setup-api", help="[API] rule mau do chinh xac qua Dashboard")
+    s.add_argument("--block", type=ints, default=[9001, 9002, 9003, 9004, 9005])
+    s.add_argument("--allow", type=ints, default=[9006, 9007, 9008, 9009, 9010])
+    add_dry_flag(s)
+    s.set_defaults(f=cmd_accuracy_setup_api)
+
+    sp.add_parser("cleanup-api", help="[API] xoa rule bench da tao qua Dashboard").set_defaults(f=cmd_cleanup_api)
+
     a = ap.parse_args()
     DRY = a.dry_run
+    API = a.api.rstrip("/")
     a.f(a)
 
 
