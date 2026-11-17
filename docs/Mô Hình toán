@@ -1,0 +1,37 @@
+Mục 4 – Mô hình toán học và phát biểu bài toán (bản nháp)
+Người phụ trách: C · Bản nháp 14/11 · Các hằng số t₀, tᵣ, c₀, c₁, tₕ sẽ được ước lượng từ số liệu benchmark (mục 6) rồi điền vào.
+4.1 Mô hình hóa firewall
+Firewall được xem là một hệ thống xử lý gói tin ở chiều input. Tập luật có thứ tự R = (r₁, r₂, …, rₙ), mỗi luật rᵢ = (mᵢ, aᵢ) gồm điều kiện khớp mᵢ (IP nguồn, cổng đích, giao thức TCP/UDP) và hành động aᵢ ∈ {ACCEPT, DROP}. Chính sách mặc định là aᵈ.
+Quyết định cho gói tin p theo nguyên tắc khớp đầu tiên:
+• D(p) = aₖ với k = min{ i : p ∈ mᵢ } nếu tồn tại luật khớp;
+• D(p) = aᵈ nếu không luật nào khớp.
+Tập IP lớn có thể gom vào một set S (băm hoặc cây): luật "ip saddr ∈ S → DROP" thay cho |S| luật rời.
+4.2 Mô hình chi phí xử lý mỗi gói tin
+Gọi t₀ là chi phí cố định cho mỗi gói (qua hook, conntrack…), tᵣ là chi phí so khớp một luật.
+• Danh sách luật rời: gói khớp luật thứ k tốn T(k) = t₀ + k·tᵣ; gói không khớp luật nào tốn T(n) = t₀ + n·tᵣ (kịch bản xấu nhất, cũng là kịch bản đo trong thực nghiệm). Kỳ vọng: E[T] = t₀ + tᵣ·Σ k·pₖ với pₖ là xác suất gói khớp luật k.
+• Dùng set: T_set = t₀ + tₕ, với tₕ gần như hằng số theo n (băm, độ phức tạp O(1)) hoặc tăng theo log n (cây).
+Độ trễ phát sinh do firewall: Δd(n) = T(n) − t₀ = n·tᵣ (luật rời) so với tₕ (set).
+4.3 Mô hình thông lượng
+Tốc độ xử lý tối đa μ(n) = 1/T(n) gói/giây. Với kích thước gói L (bit) và băng thông liên kết C:
+• Thông lượng đạt được: B(n) = min( C, μ(n)·L ) = min( C, L / (t₀ + n·tᵣ) ).
+• Có điểm gãy n* = (L/C − t₀)/tᵣ: khi n < n* liên kết là nút cổ chai (thông lượng gần như không đổi); khi n > n* CPU của firewall là nút cổ chai và B giảm theo 1/n.
+• Nếu coi hàng đợi là M/D/1 với tốc độ đến λ, mật độ ρ = λ/μ(n) < 1, thời gian chờ trung bình W = ρ / (2μ(n)·(1 − ρ)).
+4.4 Mô hình thời gian thêm luật
+Mỗi lần gọi lệnh nft phải nạp lại bộ nhớ đệm bảng luật hiện có, nên:
+• Thêm từng luật: T_add(n) = Σᵢ₌₁ⁿ (c₀ + c₁·i) = c₀·n + c₁·n(n+1)/2, tức O(n²) khi c₁ > 0.
+• Nạp theo lô (nft -f) hoặc thêm phần tử vào set: T_batch(n) = c₀ + c₁·n, tức O(n).
+Đây là cơ sở để Dashboard nên gom thay đổi thành lô khi đồng bộ lại lúc khởi động.
+4.5 Ràng buộc đúng đắn và an toàn
+• Độ chính xác: với tập gói thử P có hành vi mong đợi E(p), Acc = |{ p ∈ P : D(p) = E(p) }| / |P| = (TP + TN)/(TP + TN + FP + FN), trong đó "dương tính" nghĩa là bị chặn.
+• Chống tự khóa: gọi a là IP quản trị và q là cổng Dashboard; với mọi luật DROP rᵢ phải thỏa (a, q) ∉ mᵢ.
+• Cảnh báo quét cổng: phát cảnh báo khi một IP nguồn chạm ≥ K cổng khác nhau trong cửa sổ W giây.
+4.6 Phát biểu bài toán
+Cho tập luật gồm n luật (n ∈ {10, 100, 1000}), cần chọn chiến lược biểu diễn σ ∈ {luật rời, set} và cách nạp β ∈ {từng luật, theo lô} sao cho:
+• cực tiểu hóa độ trễ Δd(n) và thời gian áp dụng luật T_add(n);
+• cực đại hóa thông lượng B(n);
+• với ràng buộc Acc = 100% và thỏa điều kiện chống tự khóa.
+4.7 Kế hoạch kiểm chứng mô hình
+1.  Đo T(n), B(n), T_add(n) với n = 10, 100, 1000 (script benchmark.py).
+2.  Hồi quy bình phương tối thiểu để ước lượng t₀, tᵣ, c₀, c₁, tₕ; báo cáo R² và sai số tương đối giữa mô hình và thực đo.
+3.  So sánh với baseline: thêm luật thủ công bằng nft và trường hợp không có firewall.
+4.  Thảo luận: nếu mô hình lệch (ví dụ do bộ nhớ đệm, VM ảo hóa) thì giải thích nguyên nhân trong mục 6.
