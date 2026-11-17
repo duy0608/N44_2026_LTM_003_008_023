@@ -21,6 +21,36 @@ CREATE TABLE IF NOT EXISTS rules (
     updated_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
+
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    pw_hash  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS logs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT NOT NULL,
+    src_ip  TEXT,
+    dst_ip  TEXT,
+    proto   TEXT,
+    sport   INTEGER,
+    dport   INTEGER,
+    rule_id INTEGER,
+    action  TEXT NOT NULL DEFAULT 'drop'
+);
+CREATE INDEX IF NOT EXISTS idx_logs_ts  ON logs(ts);
+CREATE INDEX IF NOT EXISTS idx_logs_src ON logs(src_ip);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             TEXT NOT NULL,
+    src_ip         TEXT NOT NULL,
+    drops          INTEGER NOT NULL,
+    distinct_ports INTEGER NOT NULL,
+    window_s       INTEGER NOT NULL,
+    threshold      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts);
 """
 
 COLUMNS = ("name", "src_ip", "dst_ip", "port", "proto", "action", "direction", "enabled")
@@ -103,3 +133,93 @@ def delete_rule(rule_id: int) -> bool:
     with connect() as conn:
         cur = conn.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
         return cur.rowcount > 0
+
+
+# ----- Người dùng -----
+
+def get_user_hash(username: str) -> Optional[str]:
+    with connect() as conn:
+        row = conn.execute("SELECT pw_hash FROM users WHERE username = ?", (username,)).fetchone()
+        return row["pw_hash"] if row else None
+
+
+def set_user(username: str, pw_hash: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO users (username, pw_hash) VALUES (?, ?) "
+            "ON CONFLICT(username) DO UPDATE SET pw_hash = excluded.pw_hash",
+            (username, pw_hash),
+        )
+
+
+def count_users() -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+
+# ----- Nhật ký kết nối bị chặn -----
+
+def add_log(entry: dict) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO logs (ts, src_ip, dst_ip, proto, sport, dport, rule_id, action) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (entry["ts"], entry.get("src_ip"), entry.get("dst_ip"), entry.get("proto"),
+             entry.get("sport"), entry.get("dport"), entry.get("rule_id"), entry.get("action", "drop")),
+        )
+
+
+def list_logs(limit: int = 100, offset: int = 0, src_ip: Optional[str] = None,
+              dport: Optional[int] = None, rule_id: Optional[int] = None,
+              since: Optional[str] = None) -> list:
+    """Truy vấn có tham số hóa (không ghép chuỗi người dùng nhập vào SQL)."""
+    where, args = [], []
+    if src_ip:
+        where.append("src_ip = ?"); args.append(src_ip)
+    if dport is not None:
+        where.append("dport = ?"); args.append(dport)
+    if rule_id is not None:
+        where.append("rule_id = ?"); args.append(rule_id)
+    if since:
+        where.append("ts >= ?"); args.append(since)
+    sql = "SELECT * FROM logs"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    args += [max(1, min(limit, 1000)), max(0, offset)]
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def top_blocked_ips(limit: int = 10) -> list:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT src_ip, COUNT(*) AS drops FROM logs WHERE src_ip IS NOT NULL "
+            "GROUP BY src_ip ORDER BY drops DESC LIMIT ?", (max(1, min(limit, 100)),)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_logs() -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
+
+
+# ----- Cảnh báo quét port -----
+
+def add_alert(alert: dict) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO alerts (ts, src_ip, drops, distinct_ports, window_s, threshold) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (alert["ts"], alert["src_ip"], alert["drops"], alert["distinct_ports"],
+             alert["window_s"], alert["threshold"]),
+        )
+
+
+def list_alerts(limit: int = 50) -> list:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (max(1, min(limit, 500)),)
+        ).fetchall()
+        return [dict(r) for r in rows]

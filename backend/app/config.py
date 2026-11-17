@@ -24,3 +24,24 @@ SSH_PORT = int(os.environ.get("FW_SSH_PORT", "22"))
 
 NFT_BIN = os.environ.get("FW_NFT_BIN", "nft")
 NFT_TIMEOUT = 10  # giây
+
+# ----- Đăng nhập -----
+# FW_AUTH_DISABLED=1 tắt đăng nhập (chỉ dùng khi phát triển hoặc chạy benchmark).
+AUTH_ENABLED = os.environ.get("FW_AUTH_DISABLED", "0") != "1"
+ADMIN_USER = os.environ.get("FW_ADMIN_USER", "admin")
+# Mật khẩu quản trị khởi tạo lần đầu. Nếu để trống, hệ thống tự sinh và in ra console một lần.
+ADMIN_PASSWORD = os.environ.get("FW_ADMIN_PASSWORD", "")
+TOKEN_TTL = int(os.environ.get("FW_TOKEN_TTL", "28800"))  # 8 giờ
+LOGIN_MAX_FAILS = 5        # số lần sai tối đa
+LOGIN_FAIL_WINDOW = 60     # trong khoảng (giây) thì khóa tạm
+
+# ----- Nhật ký và cảnh báo quét port -----
+# FW_LOG_SOURCE: "journal" (mặc định, đọc nhật ký nhân qua journalctl), "dmesg",
+# "none" (không đọc), hoặc đường dẫn một tệp để theo dõi (dùng khi demo/kiểm thử).
+LOG_SOURCE = os.environ.get("FW_LOG_SOURCE", "journal")
+# Cảnh báo khi một IP bị chặn hơn ALERT_THRESHOLD gói trong ALERT_WINDOW giây.
+ALERT_THRESHOLD = int(os.environ.get("FW_ALERT_THRESHOLD", "20"))
+ALERT_WINDOW = int(os.environ.get("FW_ALERT_WINDOW", "10"))
+
+# Thư mục chứa Dashboard (HTML/CSS/JS của người B), FastAPI sẽ phục vụ ở đường dẫn gốc "/"
+DASHBOARD_DIR = os.environ.get("FW_DASHBOARD_DIR", str(BASE_DIR.parent / "dashboard"))

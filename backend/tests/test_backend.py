@@ -115,6 +115,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setattr(config, "DRY_RUN", True)
     monkeypatch.setattr(config, "ADMIN_IPS", [])
+    monkeypatch.setattr(config, "AUTH_ENABLED", False)
     from app.main import app
     with TestClient(app) as c:
         yield c
@@ -164,6 +165,7 @@ def test_rollback_when_nft_fails(client, monkeypatch):
 def test_sync_restores_rules_on_restart(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "t.db"))
     monkeypatch.setattr(config, "DRY_RUN", True)
+    monkeypatch.setattr(config, "AUTH_ENABLED", False)
     from app.main import app
     with TestClient(app) as c:
         c.post("/api/rules", json={"src_ip": "1.2.3.4", "action": "drop"})
