@@ -6,9 +6,9 @@ Lõi lọc gói tin là **nftables**; backend **FastAPI**; lưu rule bằng **SQ
 ## Cấu trúc
 
 ```
-backend/     FastAPI, SQLite, module nftables (người A)
-dashboard/   Giao diện HTML/CSS/JS (người B)
-tests/       Benchmark và kiểm thử hiệu năng (người C)
+backend/     FastAPI, SQLite, module nftables (Phạm Viết Duy)
+dashboard/   Giao diện HTML/CSS/JS (Hứa Quốc Cường)
+tests/       Benchmark và kiểm thử hiệu năng (Cao Minh Phụng)
 docs/        Sơ đồ, ảnh chụp, số liệu, nháp báo cáo
 ```
 
