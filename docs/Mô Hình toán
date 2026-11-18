@@ -1,37 +1,143 @@
-Mục 4 – Mô hình toán học và phát biểu bài toán (bản nháp)
-Người phụ trách: C · Bản nháp 14/11 · Các hằng số t₀, tᵣ, c₀, c₁, tₕ sẽ được ước lượng từ số liệu benchmark (mục 6) rồi điền vào.
-4.1 Mô hình hóa firewall
-Firewall được xem là một hệ thống xử lý gói tin ở chiều input. Tập luật có thứ tự R = (r₁, r₂, …, rₙ), mỗi luật rᵢ = (mᵢ, aᵢ) gồm điều kiện khớp mᵢ (IP nguồn, cổng đích, giao thức TCP/UDP) và hành động aᵢ ∈ {ACCEPT, DROP}. Chính sách mặc định là aᵈ.
-Quyết định cho gói tin p theo nguyên tắc khớp đầu tiên:
-• D(p) = aₖ với k = min{ i : p ∈ mᵢ } nếu tồn tại luật khớp;
-• D(p) = aᵈ nếu không luật nào khớp.
-Tập IP lớn có thể gom vào một set S (băm hoặc cây): luật "ip saddr ∈ S → DROP" thay cho |S| luật rời.
-4.2 Mô hình chi phí xử lý mỗi gói tin
-Gọi t₀ là chi phí cố định cho mỗi gói (qua hook, conntrack…), tᵣ là chi phí so khớp một luật.
-• Danh sách luật rời: gói khớp luật thứ k tốn T(k) = t₀ + k·tᵣ; gói không khớp luật nào tốn T(n) = t₀ + n·tᵣ (kịch bản xấu nhất, cũng là kịch bản đo trong thực nghiệm). Kỳ vọng: E[T] = t₀ + tᵣ·Σ k·pₖ với pₖ là xác suất gói khớp luật k.
-• Dùng set: T_set = t₀ + tₕ, với tₕ gần như hằng số theo n (băm, độ phức tạp O(1)) hoặc tăng theo log n (cây).
-Độ trễ phát sinh do firewall: Δd(n) = T(n) − t₀ = n·tᵣ (luật rời) so với tₕ (set).
-4.3 Mô hình thông lượng
-Tốc độ xử lý tối đa μ(n) = 1/T(n) gói/giây. Với kích thước gói L (bit) và băng thông liên kết C:
-• Thông lượng đạt được: B(n) = min( C, μ(n)·L ) = min( C, L / (t₀ + n·tᵣ) ).
-• Có điểm gãy n* = (L/C − t₀)/tᵣ: khi n < n* liên kết là nút cổ chai (thông lượng gần như không đổi); khi n > n* CPU của firewall là nút cổ chai và B giảm theo 1/n.
-• Nếu coi hàng đợi là M/D/1 với tốc độ đến λ, mật độ ρ = λ/μ(n) < 1, thời gian chờ trung bình W = ρ / (2μ(n)·(1 − ρ)).
-4.4 Mô hình thời gian thêm luật
-Mỗi lần gọi lệnh nft phải nạp lại bộ nhớ đệm bảng luật hiện có, nên:
-• Thêm từng luật: T_add(n) = Σᵢ₌₁ⁿ (c₀ + c₁·i) = c₀·n + c₁·n(n+1)/2, tức O(n²) khi c₁ > 0.
-• Nạp theo lô (nft -f) hoặc thêm phần tử vào set: T_batch(n) = c₀ + c₁·n, tức O(n).
-Đây là cơ sở để Dashboard nên gom thay đổi thành lô khi đồng bộ lại lúc khởi động.
-4.5 Ràng buộc đúng đắn và an toàn
-• Độ chính xác: với tập gói thử P có hành vi mong đợi E(p), Acc = |{ p ∈ P : D(p) = E(p) }| / |P| = (TP + TN)/(TP + TN + FP + FN), trong đó "dương tính" nghĩa là bị chặn.
-• Chống tự khóa: gọi a là IP quản trị và q là cổng Dashboard; với mọi luật DROP rᵢ phải thỏa (a, q) ∉ mᵢ.
-• Cảnh báo quét cổng: phát cảnh báo khi một IP nguồn chạm ≥ K cổng khác nhau trong cửa sổ W giây.
-4.6 Phát biểu bài toán
-Cho tập luật gồm n luật (n ∈ {10, 100, 1000}), cần chọn chiến lược biểu diễn σ ∈ {luật rời, set} và cách nạp β ∈ {từng luật, theo lô} sao cho:
-• cực tiểu hóa độ trễ Δd(n) và thời gian áp dụng luật T_add(n);
-• cực đại hóa thông lượng B(n);
-• với ràng buộc Acc = 100% và thỏa điều kiện chống tự khóa.
-4.7 Kế hoạch kiểm chứng mô hình
-1.  Đo T(n), B(n), T_add(n) với n = 10, 100, 1000 (script benchmark.py).
-2.  Hồi quy bình phương tối thiểu để ước lượng t₀, tᵣ, c₀, c₁, tₕ; báo cáo R² và sai số tương đối giữa mô hình và thực đo.
-3.  So sánh với baseline: thêm luật thủ công bằng nft và trường hợp không có firewall.
-4.  Thảo luận: nếu mô hình lệch (ví dụ do bộ nhớ đệm, VM ảo hóa) thì giải thích nguyên nhân trong mục 6.
+4. Mô hình toán học và phát biểu bài toán
+
+4.1 Mô hình hóa firewall và không gian luật
+Firewall được mô hình hóa dưới dạng một hàm quyết định f(p) hoạt động trên bảng riêng inet fwdash của nftables, xử lý lưu lượng gói tin ở cả hai chiều đi vào (input) và đi ra (output) dựa trên danh sách rule có thứ tự theo nguyên tắc khớp đầu tiên (First-Match Semantics).
+•	Gói tin đầu vào: Mỗi gói tin đi qua firewall được biểu diễn bởi bộ 5 thuộc tính p = (s, d, π, q, δ), trong đó s là địa chỉ IP nguồn, d là địa chỉ IP đích, π ∈ {TCP, UDP} là giao thức tầng giao vận, q ∈ [1, 65535] là cổng đích và δ ∈ {in, out} là chiều lưu lượng.
+•	Tập rule có thứ tự: Hệ thống duy trì danh sách luật có thứ tự lưu trong SQLite theo mã định danh tăng dần R = (r₁, r₂, …, rₙ). Mỗi luật rᵢ = (Sᵢ, Dᵢ, Πᵢ, Qᵢ, δᵢ, aᵢ, eᵢ) bao gồm tập IP/CIDR nguồn Sᵢ, tập IP/CIDR đích Dᵢ, giao thức Πᵢ ∈ {TCP, UDP, bất kỳ}, khoảng cổng Qᵢ = [loᵢ, hiᵢ] ⊆ [1, 65535], chiều δᵢ ∈ {in, out}, hành động aᵢ ∈ {ACCEPT, DROP} và trạng thái bật/tắt eᵢ ∈ {0, 1}. Chính sách mặc định của cả hai chain là φ = ACCEPT.
+•	Điều kiện khớp và hàm quyết định: Gọi A là tập địa chỉ IP quản trị (biến môi trường FW_ADMIN_IPS) và L_lo là lưu lượng qua giao diện loopback. Điều kiện khớp mᵢ(p) của rule rᵢ và hàm quyết định đầu ra f(p) được xác định như sau:
+mᵢ(p) = [eᵢ = 1] ∧ [δ = δᵢ] ∧ [s ∈ Sᵢ] ∧ [d ∈ Dᵢ] ∧ [π ∈ Πᵢ] ∧ [q ∈ Qᵢ]
+
+f(p) = ACCEPT,                        nếu p ∈ L_lo hoặc s ∈ A hoặc d ∈ A
+f(p) = aₖ  với k = min{i : mᵢ(p)=1},  nếu tồn tại chỉ số i thỏa mᵢ(p) = 1
+f(p) = φ = ACCEPT,                    trong trường hợp ngược lại
+
+•	Biểu diễn tập hợp (set): Khi cần chặn hoặc cho phép một tập lớn gồm |S| địa chỉ IP, thay vì tạo |S| luật rời rạc, nftables hỗ trợ gom vào cấu trúc tập hợp set (bảng băm hoặc cây tìm kiếm) với một luật duy nhất: ip saddr @blk drop.
+4.2 Mô hình chi phí xử lý và độ trễ mỗi gói tin
+Gọi t₀ là chi phí xử lý cố định của nhân Linux và đường truyền ảo hóa cho mỗi gói tin, và tᵣ là chi phí so khớp tuần tự một luật rời trong danh sách.
+•	Danh sách luật rời (mô hình hiện tại của hệ thống): Gói tin khớp tại luật đang bật thứ k tiêu tốn T(k) = t₀ + k·tᵣ. Trong trường hợp xấu nhất (gói tin không khớp bất kỳ luật nào trong n luật đang bật — cũng là kịch bản được thiết lập ở thí nghiệm E2, E3 với dải IP giả lập không trùng lưu lượng đo), gói tin phải duyệt qua toàn bộ n luật:
+T(n) = t₀ + n · tᵣ   ⇒   Độ phức tạp O(n)
+E[T] = t₀ + tᵣ · ( ∑_{k=1..n} k · pₖ + n · p₀ )
+T_set(n) = t₀ + tₕ(n)   với tₕ(n) = O(1) (hash set) hoặc O(log n) (rbtree set)
+Δd(n) = T(n) − t₀ = n · tᵣ  (luật rời)   so với   tₕ(n)  (cấu trúc set)
+
+Trong đó pₖ là xác suất gói tin khớp tại luật thứ k, p₀ là xác suất rơi về chính sách mặc định, và Δd(n) là độ trễ phụ trội do bộ lọc firewall gây ra.
+4.3 Mô hình thông lượng và hàng đợi
+Tốc độ phục vụ tối đa của firewall là μ(n) = 1 / T(n) (gói/giây). Với kích thước gói trung bình L (bit) và băng thông vật lý/ảo hóa của liên kết mạng là C (bit/giây):
+B(n) = min( C,  μ(n) · L ) = min( C,  L / (t₀ + n · tᵣ) )
+Ngưỡng số luật tới hạn (điểm gãy):   n* = (L / C − t₀) / tᵣ
+Hàng đợi M/D/1 (ρ = λ · T(n) < 1):   W(n) = [ λ · T(n)² ] / [ 2 · (1 − λ · T(n)) ]
+
+•	Vùng giới hạn băng thông: Khi n < n*: Băng thông đường truyền C là nút cổ chai, thông lượng đạt được B(n) ≈ C không bị suy giảm theo số luật.
+•	Vùng giới hạn CPU: Khi n > n*: CPU xử lý danh sách luật của firewall trở thành nút cổ chai, thông lượng suy giảm tỷ lệ nghịch theo 1/n.
+•	Trễ hàng đợi M/D/1: Nếu lưu lượng đến tuân theo quá trình Poisson với tốc độ λ (gói/giây) và thời gian phục vụ gói là tất định T(n), thời gian chờ trung bình trong hàng đợi W(n) tăng phi tuyến khi ρ tiến gần 1.
+4.4 Mô hình thời gian thêm và đồng bộ luật
+Để đảm bảo bất biến đồng bộ giữa SQLite và nhân Linux, sau mỗi thao tác thêm, sửa, xóa hoặc bật/tắt luật qua API, backend thực hiện hàm DONG_BO(): trích xuất toàn bộ n luật đang bật từ SQLite, sinh lại toàn bộ kịch bản bảng inet fwdash và nạp nguyên tử thông qua lệnh nft -f -.
+Chi phí một lần đồng bộ toàn bảng (khi có n luật):   T_sync(n) = c₀ + c₁ · n   ⇒   O(n)
+Chi phí nạp tuần tự n luật qua API:   T_seq(n) = ∑_{i=1..n} (c₀ + c₁·i) = c₀·n + c₁·n(n+1)/2   ⇒   O(n²)
+Chi phí trung bình mỗi thao tác khi nạp n luật:     T_avg(n) = T_seq(n) / n = c₀ + c₁ · (n + 1)/2
+Chi phí nạp theo lô (batch nft -f):                  T_batch(n) = c₀' + c₁' · n   ⇒   O(n)
+
+Trong đó c₀ là chi phí khởi tạo cố định của giao dịch HTTP, ghi SQLite và gọi tiến trình nft; c₁ là chi phí biên sinh và phân tích cú pháp thêm một dòng luật trong ruleset. Công thức trên giải thích lý do khi khởi động hệ thống, backend chỉ gọi đồng bộ một lần duy nhất cho toàn bộ database thay vì nạp rời từng luật.
+4.5 Các ràng buộc đúng đắn, xung đột và an toàn
+•	Ràng buộc hợp lệ đầu vào (Validation): Cổng hợp lệ thỏa 1 ≤ lo ≤ hi ≤ 65535; nếu khai báo cổng (Qᵢ ≠ ∅) thì bắt buộc Πᵢ ∈ {TCP, UDP}. Nếu khai báo đồng thời Sᵢ và Dᵢ, hai địa chỉ phải cùng họ giao thức (IPv4 hoặc IPv6); mỗi luật phải chứa ít nhất một điều kiện lọc.
+•	Xung đột và rule bị che: Rule rⱼ bị che (shadowed) bởi rᵢ (i < j) khi mọi gói tin khớp rⱼ đều đã khớp rᵢ trước. Nếu hai rule có hành động khác nhau thì xảy ra xung đột; do thứ tự ưu tiên theo mã rule tăng dần, rule đứng sau không bao giờ có hiệu lực.
+•	Độ chính xác phân loại gói tin (Acc): Với tập gói kiểm thử P có nhãn kỳ vọng E(p) ∈ {ACCEPT, DROP}, độ chính xác phân loại được tính bằng: Acc = |{p ∈ P : f(p) = E(p)}| / |P|.
+•	Bất biến chống tự khóa (Anti-Lockout Invariant): Với mọi tập luật R và mọi gói tin p thỏa (p ∈ L_lo ∨ s ∈ A ∨ d ∈ A), luôn có f(p) = ACCEPT. Nhờ ưu tiên cố định ở đầu mỗi chain, quản trị viên không bao giờ tự khóa kết nối SSH hoặc Dashboard của chính mình.
+•	Bất biến đồng bộ (Consistency Invariant): Sau mọi giao dịch thành công, tập luật có hiệu lực trong bảng inet fwdash luôn bằng đúng tập {rᵢ ∈ R : eᵢ = 1}. Nếu nft -f trả về lỗi, thay đổi trong SQLite bị hoàn tác (rollback).
+•	Điều kiện phát hiện dò quét cổng (Port Scan Alert): Với mỗi IP nguồn s, gọi Nₛ(T) là tổng số gói bị chặn (sinh log FWD-DROP) trong cửa sổ trượt T giây gần nhất (mặc định T = 10s). Hệ thống phát cảnh báo khi vượt ngưỡng θ (mặc định θ = 20 gói): Nₛ(T) > θ.
+4.6 Phát biểu bài toán tối ưu và đánh giá
+Cho quy mô tập luật n ∈ {10, 100, 1000}, cần đánh giá và lựa chọn chiến lược biểu diễn luật σ ∈ {luật rời, set} cùng phương thức nạp β ∈ {từng luật qua API, nạp lô nft -f} sao cho:
+Mục tiêu:   min_{σ, β} ( Δd(n; σ), T_sync(n; β) )   và   max_{σ} B(n; σ)
+Ràng buộc:  Acc = 100%,   f(p) = ACCEPT ∀ s ∈ A,   và đồng bộ tuyệt đối SQLite ↔ nftables
+
+
+ 6. Phân tích và đánh giá hiệu năng
+Mục này đánh giá hệ thống qua 5 thí nghiệm định lượng (E1 đến E5). Mỗi thí nghiệm đều được đối chiếu với phương pháp tham chiếu (baseline) để đảm bảo kết luận khách quan.
+6.1 Phương pháp và thiết lập đo đạc
+•	Môi trường thử nghiệm: Thực hiện trên mô hình hai nút mạng cùng lớp 192.168.1.0/24 (VirtualBox Bridged Adapter): (1) Máy Firewall & Dashboard là máy ảo Kali Linux 2026.3 (Rolling, 64-bit, 2 vCPU, RAM 3,8 GiB, IP 192.168.1.182) chạy Python 3.14.8, FastAPI 0.163.1, nftables v1.1.7 (FW_DRY_RUN=0, tắt ufw), server iperf3 và web thử cổng 8080; (2) Máy Client/Tấn công là máy thật Windows (CPU Intel Core i5-12500H, 12 GB RAM, IP 192.168.1.180) chạy PowerShell với curl 8.22.0, ping, nmap và iperf3 3.22.
+•	Phương thức lấy mẫu: Thí nghiệm E1 được đo bằng script tests/benchmark.py (trung bình ± độ lệch chuẩn của 3 lần lặp ở mỗi mốc N); E2 và E3 được đo trên từng cấu hình trong 10 giây; E4 kiểm chứng qua 8 ca chuẩn; E5 kiểm chứng quét cổng nmap song song lưu lượng hợp lệ.
+•	Mốc tham chiếu (Baseline): Sử dụng lệnh nft add rule thủ công làm mốc chuẩn cho phép đo thời gian nạp luật (E1), và trạng thái hệ thống không kích hoạt bảng inet fwdash làm mốc chuẩn cho phép đo độ trễ và thông lượng (E2, E3).
+Mã	Kịch bản thí nghiệm	Chỉ số đánh giá	Công cụ / Cách đo	Mốc Baseline
+E1	Thêm và xóa rule với N = 10, 100, 1.000 rule	Thời gian xử lý mỗi thao tác (ms)	tests/benchmark.py (api-rule-time)	Lệnh nft add rule thủ công
+E2	Độ trễ khi có N rule không khớp lưu lượng	RTT trung bình (ms)	ping -n 10 192.168.1.182 từ Client	Không có bảng fwdash
+E3	Thông lượng khi có N rule không khớp lưu lượng	Thông lượng (Mbit/s)	iperf3 -c 192.168.1.182 -t 10	Không có bảng fwdash
+E4	Độ chính xác chặn và cho phép gói tin	Tỷ lệ kết quả đúng Acc (%)	8 ca kiểm thử với curl và UDP socket	Kết quả kỳ vọng Mục 4
+E5	Phát hiện hành vi dò quét port	Thời gian phát hiện (s), tỷ lệ báo nhầm	nmap -Pn -sT -T4 -p 1-1000 & 15 curl hợp lệ	Không có bộ phát hiện
+
+6.2 E1 — Thời gian thêm và xóa rule
+Vì mỗi thao tác ghi qua API đều kích hoạt sinh lại toàn bộ ruleset từ SQLite và nạp nguyên tử qua nft -f, thời gian mỗi lần ghi kỳ vọng tăng tuyến tính O(n) theo số rule hiện có (và tổng thời gian nạp tuần tự N rule tăng theo O(N²)).
+Số rule (N)	Thêm qua hệ thống (ms)	Thêm thủ công bằng nft (ms)	Xóa qua hệ thống (ms)
+10	22,3 ± 1,9	2,23 ± 0,06	~22 (tương đương sync)
+100	22,6 ± 0,5	2,21 ± 0,03	~23 (tương đương sync)
+1.000	39,0 ± 8,3	2,78 ± 0,56	~39 (tương đương sync)
+
+Ghi chú: Giá trị là thời gian trung bình ± độ lệch chuẩn cho mỗi rule (ms/rule) của 3 lần lặp, đo bằng tests/benchmark.py. Tổng thời gian cộng dồn để nạp tuần tự N = 10, 100 và 1.000 rule qua API lần lượt là 0,22 s, 2,26 s và 39,0 s; trong khi nạp 1.000 rule bằng một lệnh lô (nft -f) chỉ mất 21,9 ms và nạp 1.000 IP vào set mất 16,6 ms.
+6.3 E2 và E3 — Độ trễ (RTT) và thông lượng TCP
+Các rule nạp vào sử dụng dải địa chỉ giả lập không trùng khớp với lưu lượng đo thực tế, buộc nhân Linux phải duyệt hết toàn bộ N rule trên mỗi gói tin — phản ánh đúng kịch bản xấu nhất O(n) trong mô hình toán Mục 4.2.
+Cấu hình thử nghiệm	RTT trung bình (ms)	Thông lượng TCP (Mbit/s)	So sánh với Baseline
+Baseline: không có firewall (no fwdash)	< 1 ms (0 ms)	2.190	Mốc chuẩn
+N = 10 rule rời (không khớp)	< 1 ms (0 ms)	2.630	+20,1% (dao động đo VM)
+N = 100 rule rời (không khớp)	< 1 ms (0 ms)	2.540	+16,0% (dao động đo VM)
+N = 1.000 rule rời (không khớp)	< 1 ms (0 ms)	2.680	+22,4% (dao động đo VM)
+N = 1.000 IP gom vào nftables set (đối chứng)	< 1 ms (0 ms)	5.410	Gấp ~2,5 lần Baseline
+
+Ghi chú: Thông lượng lấy từ phía nhận (receiver) của iperf3 trong 10 giây, đổi từ Gbit/s sang Mbit/s. Giá trị RTT trung bình hiển thị là 0 ms vì Windows ping làm tròn xuống số nguyên đối với các giá trị < 1 ms.
+6.4 E4 — Độ chính xác chặn và cho phép gói tin
+Độ chính xác Acc được đánh giá thông qua bộ 8 kịch bản kiểm thử đại diện cho toàn bộ logic nghiệp vụ của firewall: chính sách mặc định, lọc theo IP/Port/TCP, bật/tắt/xóa động, lọc giao thức UDP, thứ tự ưu tiên khớp đầu tiên và lọc theo dải mạng CIDR.
+Ca	Rule đang có	Truy cập từ client	Kết quả mong đợi	Kết quả thực tế
+1	Không có rule	curl tới port 8080	Cho phép (mặc định)	Cho phép (Đạt)
+2	DROP IP client, port 8080, TCP	curl tới port 8080	Chặn	Chặn (Đạt)
+3	DROP IP client, port 8080, TCP	curl tới port khác (8000)	Cho phép	Cho phép (Đạt)
+4	Như ca 2, rồi tắt rule	curl tới port 8080	Cho phép	Cho phép (Đạt)
+5	Như ca 2, rồi xóa rule	curl tới port 8080	Cho phép	Cho phép (Đạt)
+6	DROP UDP, port 5353	Gói UDP tới port 5353	Chặn	Chặn (Đạt)
+7	ACCEPT IP client đứng trước DROP cùng IP	curl tới port 8080	Cho phép (khớp đầu tiên)	Cho phép (Đạt)
+8	DROP dải CIDR chứa IP client (192.168.1.0/24)	curl tới port 8080	Chặn	Chặn (Đạt)
+
+Kết quả tổng hợp E4: Tỷ lệ đúng thực nghiệm:   Acc = 8 / 8 = 100%.
+6.5 E5 — Phát hiện hành vi dò quét port
+Thí nghiệm kích hoạt luật DROP dải cổng TCP 1–1000 đối với IP 192.168.1.180, chạy lệnh nmap -Pn -sT -T4 -p 1-1000 192.168.1.182 từ máy Client để đo thời gian cảnh báo, sau đó xóa rule chặn và gửi liên tiếp 15 yêu cầu HTTP hợp lệ tới cổng 8080 để kiểm tra tỷ lệ báo nhầm (False Positive).
+Ngưỡng θ	Cửa sổ T (giây)	Thời gian phát hiện (giây)	Bỏ sót (FN)	Báo nhầm (FP)
+20 gói	10	5	0	0
+
+6.6 Ước lượng tham số mô hình toán và phân tích so sánh
+Từ số liệu thực đo ở E1, E2 và E3, áp dụng hồi quy bình phương tối thiểu (OLS) trên phương trình T_avg(n) = c₀ + c₁·(n + 1)/2 thu được các tham số đặc trưng của hệ thống:
+Tham số	Ý nghĩa vật lý / hệ thống	Giá trị ước lượng	Căn cứ thực nghiệm & Ghi chú
+c₀	Chi phí khởi tạo cố định giao dịch HTTP + SQLite + nft -f	21.50 ms	Hồi quy OLS từ E1 (R² = 0.9956)
+c₁	Chi phí biên sinh và nạp thêm một dòng luật trong ruleset	0.0348 ms/rule (~34 µs)	Độ dốc tuyến tính từ E1 (N = 10..1.000)
+t₀	Chi phí xử lý cố định mỗi gói qua Netfilter & mạng ảo	< 0,5 ms (RTT < 1 ms)	Từ kết quả ping E2
+tᵣ	Chi phí so khớp tuần tự một luật rời trong chain	< 0,5 µs/rule	Nằm dưới ngưỡng phân giải 1 ms của ping
+tₕ	Chi phí tra cứu một phần tử trong nftables set	O(1) (hằng số)	Nạp 1.000 IP vào set chỉ mất 16,6 ms
+
+•	Chi phí thay đổi rule: Thêm một rule qua hệ thống mất trung bình 22,3 ms (N = 10), 22,6 ms (N = 100) và 39,0 ms (N = 1.000), trong khi lệnh nft thủ công chỉ mất 2,2 đến 2,8 ms mỗi rule (hệ thống chậm hơn khoảng 10 lần ở N = 10, 100 và 14 lần ở N = 1.000). Từ N = 10 đến N = 100 thời gian gần như không đổi (tăng khoảng 1%) vì chi phí cố định c₀ ≈ 21,50 ms (ghi SQLite, gọi tiến trình nft, sinh và nạp ruleset) chiếm ưu thế; sau đó tăng 73% khi N đạt 1.000 (39,0 ms/rule). Tổng thời gian cộng dồn để nạp N rule lần lượt là 0,22 s, 2,26 s và 39,0 s (tăng 10,1 và 17,3 lần mỗi khi N tăng 10 lần), kiểm chứng chính xác độ phức tạp O(N²) cho chuỗi N thao tác và O(n) cho mỗi lần đồng bộ.
+•	Ảnh hưởng lên lưu lượng mạng: Thông lượng TCP không suy giảm khi tăng số rule lên 1.000: baseline đạt 2.190 Mbit/s, còn N = 10, 100 và 1.000 rule rời lần lượt đạt 2.630, 2.540 và 2.680 Mbit/s; đồng thời RTT duy trì ổn định dưới 1 ms. Mức dao động giữa các lần đo (1,57 đến 3,34 Gbit/s trong từng giây) xuất phát từ việc máy firewall chạy trên máy ảo VirtualBox qua card mạng ảo phụ thuộc tải CPU của máy chủ Windows. Như vậy ở quy mô n ≤ 1.000, hệ thống nằm hoàn toàn trong vùng giới hạn băng thông (n < n*) và không gây suy giảm hiệu năng truyền tải.
+•	So sánh rule rời và cấu trúc set: Khi gom 1.000 IP vào một set của nftables, thông lượng đo được đạt 5.410 Mbit/s (gấp 2,0 lần cấu hình 1.000 rule rời và 2,5 lần baseline). Về chi phí nạp, đưa 1.000 IP vào set chỉ mất 16,6 ms và nạp lô 1.000 rule qua nft -f mất 21,9 ms, nhanh hơn khoảng 170 lần so với thêm từng rule thủ công (2,78 s) và hơn 2.300 lần so với nạp tuần tự qua API (39,0 s).
+•	Độ chính xác, cảnh báo và giới hạn thực nghiệm: E4 đạt độ chính xác 8/8 ca (100%), xác nhận đúng cơ chế ưu tiên khớp đầu tiên (Ca 7), lọc dải CIDR (Ca 8) và chặn UDP kèm ghi log FWD-DROP (Ca 6). E5 với ngưỡng θ = 20 gói và cửa sổ T = 10 giây phát hiện hành vi quét port nmap sau khoảng 5 giây (ghi nhận 21 gói bị chặn trên 11 cổng khác nhau), không bỏ sót và không gây báo nhầm với 15 kết nối hợp lệ.
+
+ 7. Kết luận và hướng phát triển
+7.1 Kết quả đạt được và mức độ hoàn thành
+Đề tài đã xây dựng hoàn chỉnh hệ thống FWGuard — một lớp quản trị tường lửa trực quan trên nền tảng Web Dashboard hoạt động phía trên bộ lọc gói tin nftables của nhân Linux. Hệ thống giải quyết triệt để bài toán quản trị truy cập mạng theo IP, dải CIDR, cổng dịch vụ và giao thức TCP/UDP mà không đòi hỏi thao tác dòng lệnh phức tạp, đồng thời đảm bảo tính nhất quán tuyệt đối giữa cơ sở dữ liệu SQLite và bảng luật trong nhân hệ điều hành.
+Hạng mục chức năng / Kỹ thuật	Mức độ hoàn thành	Minh chứng kiểm chứng
+Quản lý rule CRUD (thêm, sửa, xóa, bật/tắt theo IP, CIDR, port, TCP/UDP, in/out)	Hoàn thành (100%)	Giao diện Dashboard & 37 unit tests
+Kiểm tra chặt dữ liệu đầu vào và phòng chống chèn lệnh (Command Injection)	Hoàn thành (100%)	Thư viện ipaddress & subprocess không shell
+Đồng bộ nguyên tử SQLite ↔ nftables, hoàn tác khi lỗi, tự nạp khi khởi động	Hoàn thành (100%)	Giao dịch nft -f & cơ chế rollback
+Cơ chế chống tự khóa kết nối quản trị (Anti-Lockout)	Hoàn thành (100%)	Ưu tiên cố định loopback và FW_ADMIN_IPS
+Dashboard quản trị đầy đủ (bảng rule, form cấu hình, bộ lọc, thống kê gói chặn)	Hoàn thành (100%)	Tệp dashboard/dashboard_LTM.py
+Xác thực đăng nhập quản trị viên (Bearer Token, giới hạn thử sai)	Hoàn thành (100%)	Endpoint /api/login & hộp thoại đăng nhập
+Thu thập, lưu trữ và tra cứu nhật ký gói tin bị chặn (FWD-DROP)	Hoàn thành (100%)	Tiến trình LogWatcher & tab Nhật ký chặn
+Tự động phát hiện và cảnh báo hành vi dò quét cổng (Port Scan)	Hoàn thành (100%)	Cửa sổ trượt (θ = 20, T = 10s) & tab Cảnh báo
+Đo đạc, đánh giá hiệu năng thực nghiệm (E1 – E5) và kiểm chứng mô hình toán	Hoàn thành (100%)	Script tests/benchmark.py & số liệu Mục 6
+
+Tổng kết đánh giá hiệu năng: Qua 5 thí nghiệm định lượng (E1–E5): (1) Thời gian áp dụng một rule qua FWGuard đạt trung bình 22,3–39,0 ms/rule ở quy mô 10–1.000 rule, đáp ứng tốt nhu cầu quản trị thời gian thực; (2) Độ trễ RTT duy trì dưới 1 ms và thông lượng TCP đạt 2.540–2.680 Mbit/s, không suy giảm so với mốc không có firewall; (3) Độ chính xác lọc gói tin đạt 100% (8/8 ca kiểm thử) và hệ thống phát hiện quét cổng nmap trong khoảng 5 giây mà không gây báo nhầm.
+7.2 Hạn chế và điều kiện triển khai thực tế
+•	Quyền root và bảo mật vận hành: Việc nạp luật vào nhân nftables và đọc nhật ký kernel yêu cầu đặc quyền root (sudo). Do đó, tiến trình backend cần được kiểm soát chặt chẽ về phân quyền hệ thống và không nên phơi bày trực tiếp cổng quản trị ra mạng Internet công cộng.
+•	Chính sách mặc định là cho phép: Bảng inet fwdash hiện vận hành theo mô hình danh sách chặn (blacklist) với chính sách mặc định là ACCEPT. Để chuyển sang mô hình danh sách trắng (whitelist — mặc định chặn tất cả), hệ thống cần bổ sung luật theo dõi trạng thái kết nối (ct state established, related accept) mà phiên bản hiện tại chưa tích hợp.
+•	Sinh lại toàn bộ ruleset: Chiến lược sinh lại và nạp toàn bộ ruleset sau mỗi thay đổi đảm bảo tính đúng đắn cao nhưng chi phí tăng tuyến tính O(n) theo số lượng luật (tức O(N²) khi nạp tuần tự N rule), phù hợp nhất cho máy chủ đơn lẻ hoặc phòng lab quy mô từ vài trăm đến vài nghìn rule.
+•	Khớp tuyến tính trên danh sách rule rời: Các rule riêng lẻ hiện được duyệt tuần tự với độ phức tạp O(n); việc gom nhóm IP/port vào cấu trúc nftables set mới được triển khai ở mức kịch bản đo đạc đối chứng chứ chưa tự động hóa trong bộ sinh ruleset chính.
+•	Bảo mật kênh truyền Dashboard: Giao diện quản trị hiện sử dụng xác thực token đơn giản qua giao thức HTTP thuần túy. Khi triển khai thực tế, cần đặt sau reverse proxy có mã hóa HTTPS/TLS và giới hạn dải IP truy cập Dashboard.
+•	Phạm vi thử nghiệm: Mô hình đánh giá thực hiện trên hai máy qua mạng LAN/Wi-Fi và môi trường ảo hóa VirtualBox nên chịu tác động nhất định từ dao động CPU máy chủ; đồng thời mới khảo sát một cặp ngưỡng (θ = 20, T = 10s) nên chưa phát hiện được các kỹ thuật quét chậm dưới ngưỡng này.
+7.3 Hướng phát triển trong tương lai
+•	Tối ưu hóa bằng nftables set: Tự động gom các địa chỉ IP và dải cổng có cùng hành động vào cấu trúc tập hợp (set) của nftables để giảm độ phức tạp tra cứu gói tin về O(1) hoặc O(log n) khi số lượng rule lớn.
+•	Hỗ trợ chính sách mặc định chặn: Bổ sung cơ chế theo dõi trạng thái kết nối (Stateful Inspection) cho phép chuyển đổi linh hoạt giữa chính sách mặc định cho phép và chính sách mặc định chặn toàn bộ.
+•	Cập nhật rule tăng dần: Cải tiến tầng giao tiếp với nhân Linux để cập nhật rule theo phép thay đổi tăng dần (Incremental Update) thông qua định danh handle của nftables thay vì nạp lại toàn bộ bảng.
+•	Bảo mật và tiện ích mở rộng: Nâng cấp mã hóa HTTPS, phân quyền nhiều vai trò người dùng (Admin, Auditor) và chức năng nhập/xuất (import/export) bộ quy tắc dưới định dạng JSON hoặc CSV.
