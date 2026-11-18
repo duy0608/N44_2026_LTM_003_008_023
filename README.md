@@ -1,4 +1,4 @@
-#Hệ thống quản trị tường lửa Linux (IP/Port) qua Web Dashboard
+# Hệ thống quản trị tường lửa Linux (IP/Port) qua Web Dashboard
 
 **FWGuard** là giải pháp quản trị tường lửa trực quan được xây dựng phía trên bộ lọc gói tin mức nhân **nftables** của hệ điều hành Linux. Thay vì phải thao tác trực tiếp thông qua các dòng lệnh `nft` phức tạp và dễ phát sinh sai sót, người quản trị có thể dễ dàng kiểm soát lưu lượng mạng (cho phép hoặc chặn kết nối theo địa chỉ IP, cổng dịch vụ và giao thức TCP/UDP) thông qua giao diện **Web Dashboard**.
 
