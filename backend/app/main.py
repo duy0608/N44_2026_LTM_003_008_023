@@ -4,14 +4,20 @@ Luồng: Dashboard -> API (có đăng nhập) -> kiểm tra dữ liệu -> SQLit
 Nếu nftables từ chối, thay đổi trong SQLite bị hoàn tác để hai bên luôn khớp nhau.
 Một luồng nền đọc log nhân (FWD-DROP) vào SQLite và cảnh báo khi có dấu hiệu quét port.
 """
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+# Đảm bảo thư mục gốc dự án nằm trong sys.path để import được package dashboard
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from dashboard.dashboard_LTM import router as dashboard_router
 from . import auth, config, db, nft
 from .logwatch import LogWatcher
 from .validators import normalize_ip, validate_rule
@@ -220,7 +226,4 @@ def status():
 
 
 app.include_router(api)
-
-# Phục vụ Dashboard của người B ở đường dẫn gốc. Đặt SAU các route API để không che chúng.
-if Path(config.DASHBOARD_DIR).is_dir():
-    app.mount("/", StaticFiles(directory=config.DASHBOARD_DIR, html=True), name="dashboard")
+app.include_router(dashboard_router)
